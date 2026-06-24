@@ -14,14 +14,12 @@ struct MapView: View {
     @AppStorage("sheetClosedCount") private var sheetClosedCount = 0
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @AppStorage("hasShownRatingPrompt") private var hasShownRatingPrompt = false
-    
-    @StateObject private var dipulService = DIPULService()
+
+    @EnvironmentObject private var providerSession: ProviderSession
     @EnvironmentObject var droneSettings: DroneSettings
     @State private var region = MKCoordinateRegion.germany
     @State private var selectedMapStyle: Int = 0
     @State private var cameraPosition: MapCameraPosition = .region(.germany)
-    @State private var overlayURL: URL?
-    @State private var overlayRegion: MKCoordinateRegion?
     @State private var tappedLocation: CLLocationCoordinate2D?
     @State private var showZoneInfo = false
     @State private var currentViewSize: CGSize = .zero
@@ -42,6 +40,16 @@ struct MapView: View {
     // Only show geozones when zoomed in enough
     private var shouldShowGeozones: Bool {
         region.span.latitudeDelta < 0.8 && region.span.longitudeDelta < 0.8
+    }
+
+    private var renderPayloads: [WMSRenderPayload] {
+        providerSession.renderPayloads.compactMap { payload in
+            guard case .wmsImage(let wmsPayload) = payload else {
+                return nil
+            }
+
+            return wmsPayload
+        }
     }
 
 
@@ -76,8 +84,10 @@ struct MapView: View {
             .sheet(isPresented: $showSettings) {
                 SettingsView()
             }
-            .modifier(SettingsChangeModifiers(refreshAction: refreshOverlay))
-            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("DIPULLayersVerified"))) { _ in
+            .onChange(of: providerSession.selectedDatasetIDs) { _, _ in
+                refreshOverlay()
+            }
+            .onChange(of: providerSession.statusSnapshot) { _, _ in
                 refreshOverlay()
             }
             .onChange(of: droneSettings.simulatedTapCoordinate) { _, newValue in
@@ -105,7 +115,7 @@ struct MapView: View {
                 if newValue {
                     showZoneInfo = false
                     tappedLocation = nil
-                    dipulService.clearZoneQueryResult()
+                    providerSession.clearZoneQueryResult()
                     droneSettings.dismissActiveSheet = false
                 }
             }
@@ -117,12 +127,8 @@ struct MapView: View {
         GeometryReader { geometry in
             ZStack {
                 mapView
-                
-                // Native MKOverlay rendered directly on the map — zero lag
-                WMSNativeOverlay(
-                    overlayURL: shouldShowGeozones ? overlayURL : nil,
-                    overlayRegion: shouldShowGeozones ? overlayRegion : nil
-                )
+
+                WMSNativeOverlay(payloads: shouldShowGeozones ? renderPayloads : [])
                 .allowsHitTesting(false)
                 .ignoresSafeArea()
                 
@@ -130,14 +136,10 @@ struct MapView: View {
                     zoomHintView
                 }
                 
-                if dipulService.isLoading {
+                if providerSession.isLoading {
                     loadingView
                 }
-                
-                if let error = dipulService.errorMessage {
-                    errorView(error: error)
-                }
-                
+
                 attributionView
             }
             .onAppear {
@@ -233,18 +235,6 @@ struct MapView: View {
         }
     }
     
-    private func errorView(error: String) -> some View {
-        VStack {
-            Spacer()
-            Text(error)
-                .font(.caption)
-                .foregroundStyle(.white)
-                .padding()
-                .background(.red, in: RoundedRectangle(cornerRadius: 8))
-                .padding()
-        }
-    }
-    
     private var attributionView: some View {
         VStack {
             Spacer()
@@ -273,10 +263,10 @@ struct MapView: View {
     }
     
     private var zoneInfoSheet: some View {
-        ZoneInfoSheet(result: dipulService.zoneQueryResult) {
+        ZoneInfoSheet(result: providerSession.zoneQueryResult) {
             showZoneInfo = false
             tappedLocation = nil
-            dipulService.clearZoneQueryResult()
+            providerSession.clearZoneQueryResult()
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
@@ -320,7 +310,7 @@ struct MapView: View {
             sheetClosedCount += 1
         }
         
-if sheetClosedCount == 2 && !hasShownRatingPrompt {
+        if sheetClosedCount == 2 && !hasShownRatingPrompt {
             requestReview()
             hasShownRatingPrompt = true
         }
@@ -386,8 +376,7 @@ if sheetClosedCount == 2 && !hasShownRatingPrompt {
         if shouldShowGeozones {
             updateOverlay(size: currentViewSize)
         } else {
-            overlayURL = nil
-            overlayRegion = nil
+            providerSession.clearRenderPayloads()
         }
     }
     
@@ -403,50 +392,38 @@ if sheetClosedCount == 2 && !hasShownRatingPrompt {
     }
     
     func updateOverlay(size: CGSize) {
-        // Cancel any pending update
         updateTask?.cancel()
-        
+
         guard shouldShowGeozones, size.width > 0, size.height > 0 else {
-            overlayURL = nil
-            overlayRegion = nil
+            providerSession.clearRenderPayloads()
             return
         }
-        
-        // Debounce the update to avoid multiple simultaneous requests
+
         updateTask = Task {
-            try? await Task.sleep(nanoseconds: 300_000_000) // 0.3 second debounce
-            
+            try? await Task.sleep(nanoseconds: 300_000_000)
+
             guard !Task.isCancelled else { return }
-            
-            if let url = dipulService.getWMSURL(for: region, size: size, settings: droneSettings) {
-                overlayURL = url
-                overlayRegion = region
-            } else {
-                // No layers enabled, clear overlay
-                overlayURL = nil
-                overlayRegion = nil
-            }
+
+            await providerSession.refreshRenderPayloads(for: providerRenderRequest(viewSize: size))
         }
     }
-    
+
     func refreshOverlay() {
         guard hasCompletedInitialSetup, shouldShowGeozones, currentViewSize != .zero else { return }
         updateOverlay(size: currentViewSize)
     }
-    
+
     func handleMapTap(at coordinate: CLLocationCoordinate2D, viewSize: CGSize) {
         guard shouldShowGeozones, viewSize.width > 0, viewSize.height > 0 else { return }
-        
+
         tappedLocation = coordinate
-        
-        // Calculate new camera position to place tapped point at 25% from top
+
         let verticalOffset = region.span.latitudeDelta * (0.5 - 0.25)
         let newCenter = CLLocationCoordinate2D(
             latitude: coordinate.latitude - verticalOffset,
             longitude: coordinate.longitude
         )
-        
-        // Animate camera to new position
+
         withAnimation(.easeInOut(duration: 0.3)) {
             cameraPosition = .camera(
                 MapCamera(
@@ -457,36 +434,21 @@ if sheetClosedCount == 2 && !hasShownRatingPrompt {
                 )
             )
         }
-        
-        // Query feature info
-        dipulService.getFeatureInfo(at: coordinate, region: region, viewSize: viewSize, settings: droneSettings)
+
+        Task {
+            await providerSession.queryLocation(
+                for: ProviderPointQueryRequest(
+                    coordinate: MapCoordinate(coordinate),
+                    region: MapRegion(region),
+                    viewportSize: MapViewportSize(viewSize)
+                )
+            )
+        }
         showZoneInfo = true
     }
-}
 
-// MARK: - Settings Change Modifiers
-
-struct SettingsChangeModifiers: ViewModifier {
-    @EnvironmentObject var droneSettings: DroneSettings
-    let refreshAction: () -> Void
-    
-    func body(content: Content) -> some View {
-        content
-            .onChange(of: droneSettings.showAirports) { _, _ in refreshAction() }
-            .onChange(of: droneSettings.showAerodromes) { _, _ in refreshAction() }
-            .onChange(of: droneSettings.showControlZones) { _, _ in refreshAction() }
-            .onChange(of: droneSettings.showRestrictedAreas) { _, _ in refreshAction() }
-            .onChange(of: droneSettings.showMotorways) { _, _ in refreshAction() }
-            .onChange(of: droneSettings.showHighways) { _, _ in refreshAction() }
-            .onChange(of: droneSettings.showRailways) { _, _ in refreshAction() }
-            .onChange(of: droneSettings.showWaterways) { _, _ in refreshAction() }
-            .onChange(of: droneSettings.showResidential) { _, _ in refreshAction() }
-            .onChange(of: droneSettings.showRecreational) { _, _ in refreshAction() }
-            .onChange(of: droneSettings.showIndustrial) { _, _ in refreshAction() }
-            .onChange(of: droneSettings.showGovernment) { _, _ in refreshAction() }
-            .onChange(of: droneSettings.showNatureReserves) { _, _ in refreshAction() }
-            .onChange(of: droneSettings.showTemporaryRestrictions) { _, _ in refreshAction() }
-            .onChange(of: droneSettings.showModelFlyingFields) { _, _ in refreshAction() }
+    private func providerRenderRequest(viewSize: CGSize) -> ProviderRenderRequest {
+        ProviderRenderRequest(region: MapRegion(region), viewportSize: MapViewportSize(viewSize))
     }
 }
 
@@ -707,4 +669,21 @@ struct DetailRow: View {
 #Preview {
     MapView()
         .environmentObject(DroneSettings())
+        .environmentObject(ProviderSession(provider: DIPULProvider(), normalizer: ZoneFeatureNormalizer()))
+}
+
+private extension MapRegion {
+    init(_ region: MKCoordinateRegion) {
+        self.init(
+            center: MapCoordinate(region.center),
+            latitudeDelta: region.span.latitudeDelta,
+            longitudeDelta: region.span.longitudeDelta
+        )
+    }
+}
+
+private extension MapViewportSize {
+    init(_ size: CGSize) {
+        self.init(width: Int(size.width), height: Int(size.height))
+    }
 }

@@ -8,9 +8,33 @@
 import SwiftUI
 
 struct SettingsView: View {
+    private struct DatasetSection: Identifiable {
+        let title: String?
+        var datasets: [ProviderDataset]
+
+        var id: String {
+            title ?? "ungrouped"
+        }
+    }
+
     @EnvironmentObject var droneSettings: DroneSettings
+    @EnvironmentObject var providerSession: ProviderSession
     @Environment(\.dismiss) var dismiss
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+
+    private var datasetSections: [DatasetSection] {
+        var sections: [DatasetSection] = []
+
+        for dataset in providerSession.datasetCatalog {
+            if let index = sections.firstIndex(where: { $0.title == dataset.presentation.groupTitle }) {
+                sections[index].datasets.append(dataset)
+            } else {
+                sections.append(DatasetSection(title: dataset.presentation.groupTitle, datasets: [dataset]))
+            }
+        }
+
+        return sections
+    }
     
     var appVersion: String {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
@@ -43,35 +67,26 @@ struct SettingsView: View {
                 
                 Section {
                     VStack(alignment: .leading, spacing: 12) {
-                        SectionHeader(title: NSLocalizedString("Aviation", comment: ""))
-                        
-                        Toggle("Airports", isOn: $droneSettings.showAirports)
-                        Toggle("Aerodromes", isOn: $droneSettings.showAerodromes)
-                        Toggle("Control Zones", isOn: $droneSettings.showControlZones)
-                        Toggle("Restricted Areas", isOn: $droneSettings.showRestrictedAreas)
-                        Toggle("Temporary Restrictions", isOn: $droneSettings.showTemporaryRestrictions)
-                        Toggle("Model Flying Fields", isOn: $droneSettings.showModelFlyingFields)
-                        
-                        Divider()
-                            .padding(.vertical, 4)
-                        
-                        SectionHeader(title: NSLocalizedString("Infrastructure", comment: ""))
-                        
-                        Toggle("Motorways", isOn: $droneSettings.showMotorways)
-                        Toggle("Highways", isOn: $droneSettings.showHighways)
-                        Toggle("Railways", isOn: $droneSettings.showRailways)
-                        Toggle("Waterways", isOn: $droneSettings.showWaterways)
-                        Toggle("Industrial Facilities", isOn: $droneSettings.showIndustrial)
-                        
-                        Divider()
-                            .padding(.vertical, 4)
-                        
-                        SectionHeader(title: NSLocalizedString("Restricted Areas", comment: ""))
-                        
-                        Toggle("Residential Property", isOn: $droneSettings.showResidential)
-                        Toggle("Recreational Areas", isOn: $droneSettings.showRecreational)
-                        Toggle("Government Buildings", isOn: $droneSettings.showGovernment)
-                        Toggle("Nature Reserves", isOn: $droneSettings.showNatureReserves)
+                        ForEach(Array(datasetSections.enumerated()), id: \.offset) { index, section in
+                            if let title = section.title {
+                                SectionHeader(title: title)
+                            }
+
+                            ForEach(section.datasets) { dataset in
+                                Toggle(
+                                    dataset.presentation.title,
+                                    isOn: Binding(
+                                        get: { providerSession.selectedDatasetIDs.contains(dataset.id) },
+                                        set: { providerSession.setDatasetSelected(dataset.id, isSelected: $0) }
+                                    )
+                                )
+                            }
+
+                            if index < datasetSections.count - 1 {
+                                Divider()
+                                    .padding(.vertical, 4)
+                            }
+                        }
                     }
                 } header: {
                     Text("Map Layers")
@@ -135,4 +150,5 @@ struct SettingsView: View {
 #Preview {
     SettingsView()
         .environmentObject(DroneSettings())
+        .environmentObject(ProviderSession(provider: DIPULProvider(), normalizer: ZoneFeatureNormalizer()))
 }

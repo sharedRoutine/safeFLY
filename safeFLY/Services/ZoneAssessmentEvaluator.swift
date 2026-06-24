@@ -6,7 +6,7 @@
 import Foundation
 
 enum ZoneAssessmentEvaluator {
-    static func evaluate(features: [ZoneFeature]) -> FlightAssessmentOutcome {
+    nonisolated static func evaluate(features: [ZoneFeature]) -> FlightAssessmentOutcome {
         if features.contains(where: isProhibited) {
             return .prohibited
         }
@@ -18,7 +18,7 @@ enum ZoneAssessmentEvaluator {
         return .allowed
     }
 
-    private static func isProhibited(_ feature: ZoneFeature) -> Bool {
+    nonisolated private static func isProhibited(_ feature: ZoneFeature) -> Bool {
         switch feature.category {
         case .airport, .temporaryRestrictionActive:
             return true
@@ -27,7 +27,7 @@ enum ZoneAssessmentEvaluator {
         }
     }
 
-    private static func isConditional(_ feature: ZoneFeature) -> Bool {
+    nonisolated private static func isConditional(_ feature: ZoneFeature) -> Bool {
         switch feature.category {
         case .airport, .temporaryRestrictionActive:
             return false

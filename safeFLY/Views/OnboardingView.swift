@@ -28,8 +28,8 @@ enum StepType {
 struct OnboardingView: View {
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @EnvironmentObject var droneSettings: DroneSettings
+    @EnvironmentObject var providerSession: ProviderSession
     @StateObject private var locationManager = LocationManager()
-    @StateObject private var dipulService = DIPULService()
     @State private var currentPage = 0
     @State private var slideDirection: CGFloat = 1 // 1 for forward, -1 for backward
     @State private var showLocationStep: Bool? = nil // Captured on first appear
@@ -90,7 +90,7 @@ struct OnboardingView: View {
                 // MARK: - Step 1: Custom Floating Zone Information Popup Card (Real Data)
                 if activeSteps[currentPage].type == .airspace {
                     Group {
-                        if case .matches(let features, let assessment) = dipulService.zoneQueryResult,
+                        if case .matches(let features, let assessment) = providerSession.zoneQueryResult,
                            let feature = features.sorted(by: { $0.category.displayPriority < $1.category.displayPriority }).first {
                             let header = ZoneQueryPresentation.header(for: .matches(features: features, assessment: assessment))
 
@@ -151,7 +151,7 @@ struct OnboardingView: View {
                                 RoundedRectangle(cornerRadius: 18)
                                     .stroke(header.color.opacity(0.25), lineWidth: 1.5)
                             )
-                        } else if dipulService.isLoading {
+                        } else if providerSession.isLoading {
                             HStack(spacing: 12) {
                                 ProgressView()
                                     .tint(.white)
@@ -419,12 +419,19 @@ struct OnboardingView: View {
                         span: MKCoordinateSpan(latitudeDelta: 0.03, longitudeDelta: 0.03)
                     )
                     let querySize = CGSize(width: 256, height: 256)
-                    dipulService.getFeatureInfo(
-                        at: CLLocationCoordinate2D(latitude: targetLat, longitude: targetLng),
-                        region: queryRegion,
-                        viewSize: querySize,
-                        settings: droneSettings
-                    )
+                    Task {
+                        await providerSession.queryLocation(
+                            for: ProviderPointQueryRequest(
+                                coordinate: MapCoordinate(latitude: targetLat, longitude: targetLng),
+                                region: MapRegion(
+                                    center: MapCoordinate(queryRegion.center),
+                                    latitudeDelta: queryRegion.span.latitudeDelta,
+                                    longitudeDelta: queryRegion.span.longitudeDelta
+                                ),
+                                viewportSize: MapViewportSize(width: Int(querySize.width), height: Int(querySize.height))
+                            )
+                        )
+                    }
                 }
             }
             
