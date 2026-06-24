@@ -52,6 +52,15 @@ struct ProviderCapabilities {
     let supportsStatusRefresh: Bool
 }
 
+struct ProviderReferenceLink: Identifiable {
+    let title: String
+    let url: URL
+
+    var id: String {
+        url.absoluteString
+    }
+}
+
 struct ProviderDatasetCapabilities {
     let supportsRendering: Bool
     let supportsQuerying: Bool

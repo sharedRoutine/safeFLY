@@ -221,6 +221,15 @@ final class DIPULProvider: GeospatialProvider {
         datasetDefinitions.map(\.dataset)
     }
 
+    var referenceLinks: [ProviderReferenceLink] {
+        [
+            ProviderReferenceLink(
+                title: "DFS DIPUL Datasource",
+                url: URL(string: "https://uas-betrieb.dfs.de/homepage/")!
+            )
+        ]
+    }
+
     private func testLayer(_ layer: String) async -> LayerStatus {
         let urlString = "\(baseURL)?" +
             "service=WMS&" +

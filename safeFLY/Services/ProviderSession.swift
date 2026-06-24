@@ -11,6 +11,7 @@ protocol GeospatialProvider {
     var displayName: String { get }
     var capabilities: ProviderCapabilities { get }
     var datasets: [ProviderDataset] { get }
+    var referenceLinks: [ProviderReferenceLink] { get }
 
     func refreshStatus() async -> ProviderStatusSnapshot
     func renderPayloads(

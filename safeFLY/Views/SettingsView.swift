@@ -8,33 +8,10 @@
 import SwiftUI
 
 struct SettingsView: View {
-    private struct DatasetSection: Identifiable {
-        let title: String?
-        var datasets: [ProviderDataset]
-
-        var id: String {
-            title ?? "ungrouped"
-        }
-    }
-
     @EnvironmentObject var droneSettings: DroneSettings
     @EnvironmentObject var providerSession: ProviderSession
     @Environment(\.dismiss) var dismiss
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
-
-    private var datasetSections: [DatasetSection] {
-        var sections: [DatasetSection] = []
-
-        for dataset in providerSession.datasetCatalog {
-            if let index = sections.firstIndex(where: { $0.title == dataset.presentation.groupTitle }) {
-                sections[index].datasets.append(dataset)
-            } else {
-                sections.append(DatasetSection(title: dataset.presentation.groupTitle, datasets: [dataset]))
-            }
-        }
-
-        return sections
-    }
     
     var appVersion: String {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
@@ -66,32 +43,15 @@ struct SettingsView: View {
                 }
                 
                 Section {
-                    VStack(alignment: .leading, spacing: 12) {
-                        ForEach(Array(datasetSections.enumerated()), id: \.offset) { index, section in
-                            if let title = section.title {
-                                SectionHeader(title: title)
-                            }
-
-                            ForEach(section.datasets) { dataset in
-                                Toggle(
-                                    dataset.presentation.title,
-                                    isOn: Binding(
-                                        get: { providerSession.selectedDatasetIDs.contains(dataset.id) },
-                                        set: { providerSession.setDatasetSelected(dataset.id, isSelected: $0) }
-                                    )
-                                )
-                            }
-
-                            if index < datasetSections.count - 1 {
-                                Divider()
-                                    .padding(.vertical, 4)
-                            }
-                        }
+                    NavigationLink {
+                        ProviderDetailView()
+                    } label: {
+                        providerSummaryRow
                     }
                 } header: {
-                    Text("Map Layers")
+                    Text("Providers")
                 } footer: {
-                    Text("Toggle specific layers to customize which restrictions are displayed on the map.")
+                    Text("Manage built-in geospatial providers and their provider-specific datasets.")
                 }
                 
                 Section {
@@ -99,7 +59,6 @@ struct SettingsView: View {
                     Link("App Webpage & Status", destination: URL(string: "https://gruettecloud.com/safeFLY")!)
                     Link("Contact", destination: URL(string: "https://gruettecloud.com/support")!)
                     Link("GitHub", destination: URL(string: "https://github.com/xelemir/safeFLY")!)
-                    Link("DFS DIPUL Datasource", destination: URL(string: "https://uas-betrieb.dfs.de/homepage/")!)
                 } header: {
                     Text("Resources")
                 }
