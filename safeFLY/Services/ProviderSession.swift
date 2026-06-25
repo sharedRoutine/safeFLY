@@ -31,7 +31,7 @@ protocol ZoneFeatureNormalizing {
 }
 
 @MainActor
-final class ProviderSession: ObservableObject {
+final class ProviderSession: ObservableObject, Identifiable {
     @Published private(set) var statusSnapshot: ProviderStatusSnapshot
     @Published private(set) var renderPayloads: [ProviderRenderPayload] = []
     @Published private(set) var zoneQueryResult: ZoneQueryResult?
@@ -44,11 +44,19 @@ final class ProviderSession: ObservableObject {
 
     let provider: any GeospatialProvider
 
+    var id: String {
+        provider.id
+    }
+
     private let normalizer: any ZoneFeatureNormalizing
     private let selectionStorageKey: String
     private let statusStorageKey: String
 
-    init(provider: any GeospatialProvider, normalizer: any ZoneFeatureNormalizing) {
+    init(
+        provider: any GeospatialProvider,
+        normalizer: any ZoneFeatureNormalizing,
+        autoRefreshStatus: Bool = true
+    ) {
         let selectionStorageKey = "provider.selected-datasets.\(provider.id)"
         let statusStorageKey = "provider.status-snapshot.\(provider.id)"
         self.provider = provider
@@ -58,8 +66,10 @@ final class ProviderSession: ObservableObject {
         self.selectedDatasetIDs = Self.loadSelectedDatasetIDs(for: provider)
         self.statusSnapshot = Self.loadStatusSnapshot(for: provider, storageKey: statusStorageKey)
 
-        Task {
-            await refreshStatus()
+        if autoRefreshStatus {
+            Task {
+                await refreshStatus()
+            }
         }
     }
 

@@ -105,15 +105,15 @@ struct WMSNativeOverlay: UIViewRepresentable {
 
     func updateUIView(_ uiView: WMSOverlayHostView, context: Context) {
         let coordinator = context.coordinator
-        coordinator.pendingPayload = payloads.last
+        coordinator.pendingPayloads = payloads
         coordinator.syncOverlayIfNeeded(in: uiView)
     }
 
     class Coordinator: NSObject {
-        var currentPayload: WMSRenderPayload?
-        var pendingPayload: WMSRenderPayload?
+        var currentPayloads: [WMSRenderPayload] = []
+        var pendingPayloads: [WMSRenderPayload] = []
         private var delegateProxy: MapDelegateProxy?
-        private var downloadTask: URLSessionDataTask?
+        private var downloadTasks: [String: URLSessionDataTask] = [:]
         private weak var mapView: MKMapView?
 
         func syncOverlayIfNeeded(in hostView: WMSOverlayHostView) {
@@ -123,46 +123,43 @@ struct WMSNativeOverlay: UIViewRepresentable {
 
             if self.mapView !== mapView {
                 self.mapView = mapView
-                currentPayload = nil
+                currentPayloads = []
             }
 
-            guard pendingPayload != currentPayload else {
+            guard pendingPayloads != currentPayloads else {
                 return
             }
 
-            currentPayload = pendingPayload
+            currentPayloads = pendingPayloads
+            cancelDownloads()
 
-            guard let payload = pendingPayload else {
-                cancelDownload()
-                let existing = mapView.overlays.filter { $0 is WMSImageOverlay }
-                if !existing.isEmpty {
-                    mapView.removeOverlays(existing)
-                }
+            let existing = mapView.overlays.filter { $0 is WMSImageOverlay }
+            if !existing.isEmpty {
+                mapView.removeOverlays(existing)
+            }
+
+            guard !pendingPayloads.isEmpty else {
                 return
             }
 
-            let previousOverlays = mapView.overlays.filter { $0 is WMSImageOverlay }
-            downloadImage(url: payload.imageURL) { image in
-                guard let image else { return }
-                guard self.currentPayload == payload else { return }
+            for payload in pendingPayloads {
+                downloadImage(for: payload) { image in
+                    guard let image else { return }
+                    guard self.currentPayloads.contains(payload) else { return }
 
-                self.installDelegateProxy(on: mapView)
+                    self.installDelegateProxy(on: mapView)
 
-                let overlay = WMSImageOverlay(payload: payload)
-                overlay.image = image
-                mapView.addOverlay(overlay, level: .aboveLabels)
-
-                if !previousOverlays.isEmpty {
-                    mapView.removeOverlays(previousOverlays)
+                    let overlay = WMSImageOverlay(payload: payload)
+                    overlay.image = image
+                    mapView.addOverlay(overlay, level: .aboveLabels)
                 }
             }
         }
 
-        func downloadImage(url: URL, completion: @escaping (UIImage?) -> Void) {
-            cancelDownload()
-            let task = URLSession.shared.dataTask(with: url) { data, _, _ in
+        func downloadImage(for payload: WMSRenderPayload, completion: @escaping (UIImage?) -> Void) {
+            let task = URLSession.shared.dataTask(with: payload.imageURL) { data, _, _ in
                 DispatchQueue.main.async {
-                    self.downloadTask = nil
+                    self.downloadTasks[payload.id] = nil
                     if let data = data, let image = UIImage(data: data) {
                         completion(image)
                     } else {
@@ -170,13 +167,13 @@ struct WMSNativeOverlay: UIViewRepresentable {
                     }
                 }
             }
-            downloadTask = task
+            downloadTasks[payload.id] = task
             task.resume()
         }
 
-        func cancelDownload() {
-            downloadTask?.cancel()
-            downloadTask = nil
+        func cancelDownloads() {
+            downloadTasks.values.forEach { $0.cancel() }
+            downloadTasks = [:]
         }
 
         func installDelegateProxy(on mapView: MKMapView) {

@@ -15,7 +15,7 @@ struct MapView: View {
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @AppStorage("hasShownRatingPrompt") private var hasShownRatingPrompt = false
 
-    @EnvironmentObject private var providerSession: ProviderSession
+    @EnvironmentObject private var providersStore: ProvidersStore
     @EnvironmentObject var droneSettings: DroneSettings
     @State private var region = MKCoordinateRegion.germany
     @State private var selectedMapStyle: Int = 0
@@ -43,7 +43,7 @@ struct MapView: View {
     }
 
     private var renderPayloads: [WMSRenderPayload] {
-        providerSession.renderPayloads.compactMap { payload in
+        providersStore.renderPayloads.compactMap { payload in
             guard case .wmsImage(let wmsPayload) = payload else {
                 return nil
             }
@@ -84,10 +84,7 @@ struct MapView: View {
             .sheet(isPresented: $showSettings) {
                 SettingsView()
             }
-            .onChange(of: providerSession.selectedDatasetIDs) { _, _ in
-                refreshOverlay()
-            }
-            .onChange(of: providerSession.statusSnapshot) { _, _ in
+            .onChange(of: providersStore.configurationRevision) { _, _ in
                 refreshOverlay()
             }
             .onChange(of: droneSettings.simulatedTapCoordinate) { _, newValue in
@@ -115,7 +112,7 @@ struct MapView: View {
                 if newValue {
                     showZoneInfo = false
                     tappedLocation = nil
-                    providerSession.clearZoneQueryResult()
+                    providersStore.clearZoneQueryResult()
                     droneSettings.dismissActiveSheet = false
                 }
             }
@@ -136,7 +133,7 @@ struct MapView: View {
                     zoomHintView
                 }
                 
-                if providerSession.isLoading {
+                if providersStore.isLoading {
                     loadingView
                 }
 
@@ -263,10 +260,10 @@ struct MapView: View {
     }
     
     private var zoneInfoSheet: some View {
-        ZoneInfoSheet(result: providerSession.zoneQueryResult) {
+        ZoneInfoSheet(result: providersStore.zoneQueryResult) {
             showZoneInfo = false
             tappedLocation = nil
-            providerSession.clearZoneQueryResult()
+            providersStore.clearZoneQueryResult()
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
@@ -376,7 +373,7 @@ struct MapView: View {
         if shouldShowGeozones {
             updateOverlay(size: currentViewSize)
         } else {
-            providerSession.clearRenderPayloads()
+            providersStore.clearRenderPayloads()
         }
     }
     
@@ -395,7 +392,7 @@ struct MapView: View {
         updateTask?.cancel()
 
         guard shouldShowGeozones, size.width > 0, size.height > 0 else {
-            providerSession.clearRenderPayloads()
+            providersStore.clearRenderPayloads()
             return
         }
 
@@ -404,7 +401,7 @@ struct MapView: View {
 
             guard !Task.isCancelled else { return }
 
-            await providerSession.refreshRenderPayloads(for: providerRenderRequest(viewSize: size))
+            await providersStore.refreshRenderPayloads(for: providerRenderRequest(viewSize: size))
         }
     }
 
@@ -436,7 +433,7 @@ struct MapView: View {
         }
 
         Task {
-            await providerSession.queryLocation(
+            await providersStore.queryLocation(
                 for: ProviderPointQueryRequest(
                     coordinate: MapCoordinate(coordinate),
                     region: MapRegion(region),
@@ -749,7 +746,7 @@ struct DetailRow: View {
 #Preview {
     MapView()
         .environmentObject(DroneSettings())
-        .environmentObject(ProviderSession(provider: DIPULProvider(), normalizer: ZoneFeatureNormalizer()))
+        .environmentObject(ProvidersStore(registrations: BuiltInProviders.all))
 }
 
 private extension MapRegion {

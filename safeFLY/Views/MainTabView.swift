@@ -52,7 +52,7 @@ struct MainTabView: View {
     @StateObject private var droneSettings = DroneSettings()
     @StateObject private var locationManager = LocationManager()
     @StateObject private var searchManager = SearchManager()
-    @StateObject private var providerSession = ProviderSession(provider: DIPULProvider(), normalizer: ZoneFeatureNormalizer())
+    @StateObject private var providersStore = ProvidersStore(registrations: BuiltInProviders.all)
     @State private var search: String = ""
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @Environment(\.dismissSearch) private var dismissSearch
@@ -168,7 +168,7 @@ struct MainTabView: View {
             }
         }
         .environmentObject(droneSettings)
-        .environmentObject(providerSession)
+        .environmentObject(providersStore)
     }
 }
 

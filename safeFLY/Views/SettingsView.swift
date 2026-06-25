@@ -9,7 +9,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject var droneSettings: DroneSettings
-    @EnvironmentObject var providerSession: ProviderSession
+    @EnvironmentObject var providersStore: ProvidersStore
     @Environment(\.dismiss) var dismiss
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     
@@ -43,10 +43,15 @@ struct SettingsView: View {
                 }
                 
                 Section {
-                    NavigationLink {
-                        ProviderDetailView()
-                    } label: {
-                        providerSummaryRow
+                    ForEach(providersStore.sessions) { providerSession in
+                        NavigationLink {
+                            ProviderDetailView(providerSession: providerSession)
+                        } label: {
+                            ProviderSummaryRow(
+                                providerSession: providerSession,
+                                isEnabled: providersStore.isProviderEnabled(providerSession.provider.id)
+                            )
+                        }
                     }
                 } header: {
                     Text(NSLocalizedString("Providers", comment: "Providers section title"))
@@ -109,5 +114,5 @@ struct SettingsView: View {
 #Preview {
     SettingsView()
         .environmentObject(DroneSettings())
-        .environmentObject(ProviderSession(provider: DIPULProvider(), normalizer: ZoneFeatureNormalizer()))
+        .environmentObject(ProvidersStore(registrations: BuiltInProviders.all))
 }

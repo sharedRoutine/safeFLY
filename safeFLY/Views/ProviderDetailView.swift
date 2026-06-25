@@ -15,7 +15,8 @@ struct ProviderDetailView: View {
         }
     }
 
-    @EnvironmentObject private var providerSession: ProviderSession
+    @EnvironmentObject private var providersStore: ProvidersStore
+    @ObservedObject var providerSession: ProviderSession
     @State private var isRefreshingStatus = false
 
     private var datasetSections: [DatasetSection] {
@@ -34,6 +35,7 @@ struct ProviderDetailView: View {
 
     var body: some View {
         Form {
+            enablementSection
             statusSection
             datasetSection
 
@@ -43,6 +45,23 @@ struct ProviderDetailView: View {
         }
         .navigationTitle(providerSession.provider.displayName)
         .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: providerSession.selectedDatasetIDs) { _, _ in
+            providersStore.markConfigurationChanged()
+        }
+    }
+
+    private var enablementSection: some View {
+        Section {
+            Toggle(
+                NSLocalizedString("Enable Provider", comment: "Provider enable toggle label"),
+                isOn: Binding(
+                    get: { providersStore.isProviderEnabled(providerSession.provider.id) },
+                    set: { providersStore.setProviderEnabled(providerSession.provider.id, isEnabled: $0) }
+                )
+            )
+        } footer: {
+            Text(NSLocalizedString("Disabled providers do not participate in map rendering or location queries.", comment: "Provider enablement footer"))
+        }
     }
 
     private var statusSection: some View {
@@ -98,7 +117,7 @@ struct ProviderDetailView: View {
                 }
 
                 ForEach(section.datasets) { dataset in
-                    ProviderDatasetToggleRow(dataset: dataset)
+                    ProviderDatasetToggleRow(providerSession: providerSession, dataset: dataset)
                 }
             }
         } header: {
@@ -122,7 +141,7 @@ struct ProviderDetailView: View {
         isRefreshingStatus = true
 
         Task {
-            await providerSession.refreshStatus()
+            await providersStore.refreshStatus(for: providerSession.provider.id)
             await MainActor.run {
                 isRefreshingStatus = false
             }
@@ -131,8 +150,7 @@ struct ProviderDetailView: View {
 }
 
 private struct ProviderDatasetToggleRow: View {
-    @EnvironmentObject private var providerSession: ProviderSession
-
+    @ObservedObject var providerSession: ProviderSession
     let dataset: ProviderDataset
 
     var body: some View {
@@ -156,23 +174,39 @@ private struct ProviderDatasetToggleRow: View {
     }
 }
 
-private struct ProviderSummaryRow: View {
-    let providerName: String
-    let status: ProviderAvailabilityStatus
+struct ProviderSummaryRow: View {
+    @ObservedObject var providerSession: ProviderSession
+    let isEnabled: Bool
 
     var body: some View {
         HStack(spacing: 12) {
             Circle()
-                .fill(status.color)
+                .fill(summaryColor)
                 .frame(width: 10, height: 10)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(providerName)
-                Text(status.displayTitle)
+                Text(providerSession.provider.displayName)
+                Text(summaryTitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    private var summaryTitle: String {
+        if isEnabled {
+            return providerSession.statusSnapshot.providerStatus.displayTitle
+        }
+
+        return NSLocalizedString("Disabled", comment: "Provider disabled status")
+    }
+
+    private var summaryColor: Color {
+        if isEnabled {
+            return providerSession.statusSnapshot.providerStatus.color
+        }
+
+        return .secondary
     }
 }
 
@@ -219,16 +253,7 @@ extension ProviderAvailabilityStatus {
 
 #Preview {
     NavigationStack {
-        ProviderDetailView()
-            .environmentObject(ProviderSession(provider: DIPULProvider(), normalizer: ZoneFeatureNormalizer()))
-    }
-}
-
-extension SettingsView {
-    var providerSummaryRow: some View {
-        ProviderSummaryRow(
-            providerName: providerSession.provider.displayName,
-            status: providerSession.statusSnapshot.providerStatus
-        )
+        ProviderDetailView(providerSession: ProviderSession(provider: DIPULProvider(), normalizer: ZoneFeatureNormalizer(), autoRefreshStatus: false))
+            .environmentObject(ProvidersStore(registrations: BuiltInProviders.all))
     }
 }

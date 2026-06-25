@@ -28,7 +28,7 @@ enum StepType {
 struct OnboardingView: View {
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @EnvironmentObject var droneSettings: DroneSettings
-    @EnvironmentObject var providerSession: ProviderSession
+    @EnvironmentObject var providersStore: ProvidersStore
     @StateObject private var locationManager = LocationManager()
     @State private var currentPage = 0
     @State private var slideDirection: CGFloat = 1 // 1 for forward, -1 for backward
@@ -90,7 +90,7 @@ struct OnboardingView: View {
                 // MARK: - Step 1: Custom Floating Zone Information Popup Card (Real Data)
                 if activeSteps[currentPage].type == .airspace {
                     Group {
-                        if case .matches(let features, let assessment) = providerSession.zoneQueryResult,
+                        if case .matches(let features, let assessment) = providersStore.zoneQueryResult,
                            let feature = features.sorted(by: { $0.category.displayPriority < $1.category.displayPriority }).first {
                             let header = ZoneQueryPresentation.header(for: .matches(features: features, assessment: assessment))
 
@@ -151,7 +151,7 @@ struct OnboardingView: View {
                                 RoundedRectangle(cornerRadius: 18)
                                     .stroke(header.color.opacity(0.25), lineWidth: 1.5)
                             )
-                        } else if providerSession.isLoading {
+                        } else if providersStore.isLoading {
                             HStack(spacing: 12) {
                                 ProgressView()
                                     .tint(.white)
@@ -420,7 +420,7 @@ struct OnboardingView: View {
                     )
                     let querySize = CGSize(width: 256, height: 256)
                     Task {
-                        await providerSession.queryLocation(
+                        await providersStore.queryLocation(
                             for: ProviderPointQueryRequest(
                                 coordinate: MapCoordinate(latitude: targetLat, longitude: targetLng),
                                 region: MapRegion(

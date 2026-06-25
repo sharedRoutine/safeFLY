@@ -267,9 +267,12 @@
 "Provider Status" = "Provider Status";
 "Last refreshed at %@." = "Last refreshed at %@.";
 "Provider status has not been refreshed yet." = "Provider status has not been refreshed yet.";
+"Enable Provider" = "Enable Provider";
+"Disabled providers do not participate in map rendering or location queries." = "Disabled providers do not participate in map rendering or location queries.";
 "Provider Datasets" = "Provider Datasets";
 "Dataset selection remains editable even when a dataset is temporarily unavailable." = "Dataset selection remains editable even when a dataset is temporarily unavailable.";
 "Provider References" = "Provider References";
+"Disabled" = "Disabled";
 "Unknown" = "Unknown";
 "Available" = "Available";
 "Degraded" = "Degraded";
