@@ -264,7 +264,7 @@
 
 /* Provider Management */
 "Providers" = "Anbieter";
-"Manage built-in geospatial providers and their provider-specific datasets." = "Verwalte die eingebauten Geodaten-Anbieter und ihre jeweiligen Datensätze.";
+"Manage built-in geospatial providers, reorder their precedence, and configure their provider-specific datasets." = "Verwalte die eingebauten Geodaten-Anbieter, ordne ihre Priorität neu und konfiguriere ihre jeweiligen Datensätze.";
 "Refreshing Status..." = "Status wird aktualisiert...";
 "Refresh Provider Status" = "Anbieter-Status aktualisieren";
 "Provider Status" = "Anbieter-Status";

@@ -53,10 +53,11 @@ struct SettingsView: View {
                             )
                         }
                     }
+                    .onMove(perform: providersStore.moveProviders)
                 } header: {
                     Text(NSLocalizedString("Providers", comment: "Providers section title"))
                 } footer: {
-                    Text(NSLocalizedString("Manage built-in geospatial providers and their provider-specific datasets.", comment: "Providers section footer"))
+                    Text(NSLocalizedString("Manage built-in geospatial providers, reorder their precedence, and configure their provider-specific datasets.", comment: "Providers section footer"))
                 }
                 
                 Section {
@@ -101,6 +102,10 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    EditButton()
+                }
+
                 ToolbarItem(placement: .confirmationAction) {
                     Button(NSLocalizedString("Done", comment: "")) {
                         dismiss()

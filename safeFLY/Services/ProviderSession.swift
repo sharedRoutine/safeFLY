@@ -6,28 +6,51 @@
 import Foundation
 import Combine
 
-protocol GeospatialProvider {
-    var id: String { get }
-    var displayName: String { get }
-    var capabilities: ProviderCapabilities { get }
-    var datasets: [ProviderDataset] { get }
-    var referenceLinks: [ProviderReferenceLink] { get }
+protocol GeospatialProvider: Sendable {
+    nonisolated var id: String { get }
+    nonisolated var displayName: String { get }
+    nonisolated var capabilities: ProviderCapabilities { get }
+    nonisolated var datasets: [ProviderDataset] { get }
+    nonisolated var referenceLinks: [ProviderReferenceLink] { get }
 
-    func refreshStatus() async -> ProviderStatusSnapshot
-    func renderPayloads(
+    nonisolated func refreshStatus() async -> ProviderStatusSnapshot
+    nonisolated func renderPayloads(
         for request: ProviderRenderRequest,
         selectedDatasetIDs: Set<String>,
         status: ProviderStatusSnapshot
     ) async -> [ProviderRenderPayload]
-    func query(
+    nonisolated func query(
         for request: ProviderPointQueryRequest,
         selectedDatasetIDs: Set<String>,
         status: ProviderStatusSnapshot
     ) async -> ProviderQueryOutcome
 }
 
-protocol ZoneFeatureNormalizing {
-    func normalize(records: [any ProviderRawRecord]) -> [ZoneFeature]
+protocol ZoneFeatureNormalizing: Sendable {
+    nonisolated func normalize(records: [any ProviderRawRecord]) -> [ZoneFeature]
+}
+
+struct ProviderStatusRefreshJob: Sendable {
+    let providerID: String
+    let provider: any GeospatialProvider
+    let supportsStatusRefresh: Bool
+    let fallbackSnapshot: ProviderStatusSnapshot
+}
+
+struct ProviderRenderJob: Sendable {
+    let providerID: String
+    let provider: any GeospatialProvider
+    let request: ProviderRenderRequest
+    let selectedDatasetIDs: Set<String>
+    let statusSnapshot: ProviderStatusSnapshot
+}
+
+struct ProviderQueryJob: Sendable {
+    let providerID: String
+    let provider: any GeospatialProvider
+    let request: ProviderPointQueryRequest
+    let selectedDatasetIDs: Set<String>
+    let statusSnapshot: ProviderStatusSnapshot
 }
 
 @MainActor
@@ -77,6 +100,74 @@ final class ProviderSession: ObservableObject, Identifiable {
         provider.datasets
     }
 
+    func makeStatusRefreshJob() -> ProviderStatusRefreshJob {
+        ProviderStatusRefreshJob(
+            providerID: provider.id,
+            provider: provider,
+            supportsStatusRefresh: provider.capabilities.supportsStatusRefresh,
+            fallbackSnapshot: ProviderStatusSnapshot(
+                providerStatus: .available,
+                datasetStatuses: Dictionary(uniqueKeysWithValues: provider.datasets.map { ($0.id, .available) }),
+                refreshedAt: Date()
+            )
+        )
+    }
+
+    func applyStatusSnapshot(_ snapshot: ProviderStatusSnapshot) {
+        statusSnapshot = snapshot
+        persistStatusSnapshot(snapshot)
+    }
+
+    func makeRenderJob(for request: ProviderRenderRequest) -> ProviderRenderJob? {
+        guard provider.capabilities.supportsRendering else {
+            return nil
+        }
+
+        let renderableDatasetIDs = selectedDatasetIDsForRendering()
+        guard !renderableDatasetIDs.isEmpty else {
+            return nil
+        }
+
+        return ProviderRenderJob(
+            providerID: provider.id,
+            provider: provider,
+            request: request,
+            selectedDatasetIDs: renderableDatasetIDs,
+            statusSnapshot: statusSnapshot
+        )
+    }
+
+    func applyRenderPayloads(_ payloads: [ProviderRenderPayload]) {
+        renderPayloads = payloads
+    }
+
+    func makeQueryJob(for request: ProviderPointQueryRequest) -> ProviderQueryJob? {
+        guard provider.capabilities.supportsQuerying else {
+            return nil
+        }
+
+        let queryableDatasetIDs = selectedDatasetIDsForQuerying()
+        guard !queryableDatasetIDs.isEmpty else {
+            return nil
+        }
+
+        return ProviderQueryJob(
+            providerID: provider.id,
+            provider: provider,
+            request: request,
+            selectedDatasetIDs: queryableDatasetIDs,
+            statusSnapshot: statusSnapshot
+        )
+    }
+
+    func applyQueryOutcome(_ outcome: ProviderQueryOutcome) {
+        zoneQueryResult = mapQueryOutcomeToZoneQueryResult(outcome)
+    }
+
+    func applyNonAssessmentNoEnabledLayers() {
+        zoneQueryResult = .nonAssessment(reason: .noEnabledLayers)
+    }
+
     func clearZoneQueryResult() {
         zoneQueryResult = nil
     }
@@ -100,57 +191,43 @@ final class ProviderSession: ObservableObject, Identifiable {
                 datasetStatuses: Dictionary(uniqueKeysWithValues: provider.datasets.map { ($0.id, .available) }),
                 refreshedAt: Date()
             )
-            statusSnapshot = availableSnapshot
-            persistStatusSnapshot(availableSnapshot)
+            applyStatusSnapshot(availableSnapshot)
             return
         }
 
         let refreshedSnapshot = await provider.refreshStatus()
-        statusSnapshot = refreshedSnapshot
-        persistStatusSnapshot(refreshedSnapshot)
+        applyStatusSnapshot(refreshedSnapshot)
     }
 
     func refreshRenderPayloads(for request: ProviderRenderRequest) async {
-        guard provider.capabilities.supportsRendering else {
+        guard let job = makeRenderJob(for: request) else {
             renderPayloads = []
             return
         }
 
-        let renderableDatasetIDs = selectedDatasetIDsForRendering()
-        guard !renderableDatasetIDs.isEmpty else {
-            renderPayloads = []
-            return
-        }
-
-        renderPayloads = await provider.renderPayloads(
-            for: request,
-            selectedDatasetIDs: renderableDatasetIDs,
-            status: statusSnapshot
+        renderPayloads = await job.provider.renderPayloads(
+            for: job.request,
+            selectedDatasetIDs: job.selectedDatasetIDs,
+            status: job.statusSnapshot
         )
     }
 
     func queryLocation(for request: ProviderPointQueryRequest) async {
-        guard provider.capabilities.supportsQuerying else {
-            zoneQueryResult = .nonAssessment(reason: .noEnabledLayers)
-            return
-        }
-
-        let queryableDatasetIDs = selectedDatasetIDsForQuerying()
-        guard !queryableDatasetIDs.isEmpty else {
-            zoneQueryResult = .nonAssessment(reason: .noEnabledLayers)
+        guard let job = makeQueryJob(for: request) else {
+            applyNonAssessmentNoEnabledLayers()
             return
         }
 
         isLoading = true
         zoneQueryResult = nil
 
-        let outcome = await provider.query(
-            for: request,
-            selectedDatasetIDs: queryableDatasetIDs,
-            status: statusSnapshot
+        let outcome = await job.provider.query(
+            for: job.request,
+            selectedDatasetIDs: job.selectedDatasetIDs,
+            status: job.statusSnapshot
         )
 
-        zoneQueryResult = mapQueryOutcomeToZoneQueryResult(outcome)
+        applyQueryOutcome(outcome)
         isLoading = false
     }
 

@@ -5,8 +5,8 @@
 
 import Foundation
 
-struct ZoneFeatureNormalizer: ZoneFeatureNormalizing {
-    func normalize(records: [any ProviderRawRecord]) -> [ZoneFeature] {
+struct ZoneFeatureNormalizer: ZoneFeatureNormalizing, Sendable {
+    nonisolated func normalize(records: [any ProviderRawRecord]) -> [ZoneFeature] {
         records.compactMap { record in
             if let dipulRecord = record as? DIPULFeatureInfoRecord {
                 return normalize(dipulRecord)
@@ -16,7 +16,7 @@ struct ZoneFeatureNormalizer: ZoneFeatureNormalizing {
         }
     }
 
-    private func normalize(_ record: DIPULFeatureInfoRecord) -> ZoneFeature {
+    nonisolated private func normalize(_ record: DIPULFeatureInfoRecord) -> ZoneFeature {
         ZoneFeature(
             category: mapCategory(from: record.layerName),
             name: record.name,
@@ -29,7 +29,7 @@ struct ZoneFeatureNormalizer: ZoneFeatureNormalizing {
         )
     }
 
-    private func mapCategory(from layerName: String) -> ZoneCategory {
+    nonisolated private func mapCategory(from layerName: String) -> ZoneCategory {
         if layerName.contains("flughaefen") { return .airport }
         if layerName.contains("kontrollzonen") { return .controlZone }
         if layerName.contains("flugplaetze") { return .aerodrome }

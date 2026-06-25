@@ -6,7 +6,7 @@
 import Foundation
 import CoreLocation
 
-struct MapCoordinate: Equatable, Hashable, Codable {
+struct MapCoordinate: Equatable, Hashable, Codable, Sendable {
     let latitude: Double
     let longitude: Double
 
@@ -24,35 +24,35 @@ struct MapCoordinate: Equatable, Hashable, Codable {
     }
 }
 
-struct MapRegion: Equatable, Hashable, Codable {
+struct MapRegion: Equatable, Hashable, Codable, Sendable {
     let center: MapCoordinate
     let latitudeDelta: Double
     let longitudeDelta: Double
 }
 
-struct MapViewportSize: Equatable, Hashable, Codable {
+struct MapViewportSize: Equatable, Hashable, Codable, Sendable {
     let width: Int
     let height: Int
 }
 
-struct ProviderRenderRequest: Equatable, Hashable, Codable {
+struct ProviderRenderRequest: Equatable, Hashable, Codable, Sendable {
     let region: MapRegion
     let viewportSize: MapViewportSize
 }
 
-struct ProviderPointQueryRequest: Equatable, Hashable, Codable {
+struct ProviderPointQueryRequest: Equatable, Hashable, Codable, Sendable {
     let coordinate: MapCoordinate
     let region: MapRegion
     let viewportSize: MapViewportSize
 }
 
-struct ProviderCapabilities {
+struct ProviderCapabilities: Sendable {
     let supportsRendering: Bool
     let supportsQuerying: Bool
     let supportsStatusRefresh: Bool
 }
 
-struct ProviderReferenceLink: Identifiable {
+struct ProviderReferenceLink: Identifiable, Sendable {
     let title: String
     let url: URL
 
@@ -61,36 +61,36 @@ struct ProviderReferenceLink: Identifiable {
     }
 }
 
-struct ProviderDatasetCapabilities {
+struct ProviderDatasetCapabilities: Sendable {
     let supportsRendering: Bool
     let supportsQuerying: Bool
 }
 
-struct ProviderDatasetPresentation {
+struct ProviderDatasetPresentation: Sendable {
     let title: String
     let groupTitle: String?
 }
 
-struct ProviderDataset: Identifiable {
+struct ProviderDataset: Identifiable, Sendable {
     let id: String
     let presentation: ProviderDatasetPresentation
     let capabilities: ProviderDatasetCapabilities
     let isSelectedByDefault: Bool
 }
 
-enum ProviderAvailabilityStatus: String, Codable {
+enum ProviderAvailabilityStatus: String, Codable, Sendable {
     case unknown
     case available
     case degraded
     case unavailable
 }
 
-struct ProviderStatusSnapshot: Equatable, Codable {
+struct ProviderStatusSnapshot: Equatable, Codable, Sendable {
     let providerStatus: ProviderAvailabilityStatus
     let datasetStatuses: [String: ProviderAvailabilityStatus]
     let refreshedAt: Date?
 
-    func status(for datasetID: String) -> ProviderAvailabilityStatus {
+    nonisolated func status(for datasetID: String) -> ProviderAvailabilityStatus {
         datasetStatuses[datasetID] ?? .unknown
     }
 
@@ -103,36 +103,36 @@ struct ProviderStatusSnapshot: Equatable, Codable {
     }
 }
 
-protocol ProviderRawRecord {
+protocol ProviderRawRecord: Sendable {
     var providerID: String { get }
 }
 
-enum ProviderQueryUnavailableReason {
+enum ProviderQueryUnavailableReason: Sendable {
     case outsideCoverage
     case requestFailed(details: String?)
     case providerNoData
     case invalidResponse
 }
 
-enum ProviderQueryOutcome {
+enum ProviderQueryOutcome: Sendable {
     case matches(records: [any ProviderRawRecord])
     case noMatches
     case unavailable(reason: ProviderQueryUnavailableReason)
 }
 
-enum ProviderRenderPayloadType {
+enum ProviderRenderPayloadType: Sendable {
     case wmsImage
     case polygon
 }
 
-struct WMSRenderPayload: Identifiable, Equatable {
+struct WMSRenderPayload: Identifiable, Equatable, Sendable {
     let id: String
     let imageURL: URL
     let region: MapRegion
     let opacity: Double
 }
 
-struct PolygonRenderPayload: Identifiable, Equatable {
+struct PolygonRenderPayload: Identifiable, Equatable, Sendable {
     let id: String
     let coordinates: [MapCoordinate]
     let fillColorHex: String
@@ -142,7 +142,7 @@ struct PolygonRenderPayload: Identifiable, Equatable {
     let lineWidth: Double
 }
 
-enum ProviderRenderPayload: Identifiable, Equatable {
+enum ProviderRenderPayload: Identifiable, Equatable, Sendable {
     case wmsImage(WMSRenderPayload)
     case polygon(PolygonRenderPayload)
 

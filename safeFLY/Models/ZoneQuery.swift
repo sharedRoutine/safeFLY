@@ -5,50 +5,50 @@
 
 import Foundation
 
-enum ZoneQueryResult {
+enum ZoneQueryResult: Sendable {
     case clear(reason: ClearReason)
     case matches(features: [ZoneFeature], assessment: FlightAssessmentOutcome)
     case nonAssessment(reason: NonAssessmentReason)
     case unavailable(reason: UnavailableReason)
 }
 
-enum ClearReason {
+enum ClearReason: Sendable {
     case noMatchingRestrictions
 }
 
-enum NonAssessmentReason {
+enum NonAssessmentReason: Sendable {
     case noEnabledLayers
 }
 
-enum UnavailableReason {
+enum UnavailableReason: Sendable {
     case outsideCoverage
     case requestFailed(details: String?)
     case providerNoData
     case invalidResponse
 }
 
-enum FlightAssessmentOutcome {
+enum FlightAssessmentOutcome: Sendable {
     case allowed
     case conditional
     case prohibited
 }
 
-struct SourceProvenance {
+struct SourceProvenance: Sendable {
     let providerID: String
     let sourceLayerID: String
 }
 
-struct AltitudeLimit {
+struct AltitudeLimit: Sendable {
     let value: String
     let unit: String
     let reference: String?
 
-    var stableIDComponent: String {
+    nonisolated var stableIDComponent: String {
         [value, unit, reference ?? ""].joined(separator: "|")
     }
 }
 
-enum ZoneCategory {
+enum ZoneCategory: Sendable {
     case airport
     case controlZone
     case aerodrome
@@ -155,7 +155,7 @@ enum ZoneCategory {
     }
 }
 
-struct ZoneFeature: Identifiable {
+struct ZoneFeature: Identifiable, Sendable {
     let id: String
     let category: ZoneCategory
     let name: String?
@@ -166,7 +166,7 @@ struct ZoneFeature: Identifiable {
     let legalReference: String?
     let source: SourceProvenance
 
-    init(
+    nonisolated init(
         category: ZoneCategory,
         name: String?,
         sourceDeclaredType: String?,
@@ -196,7 +196,7 @@ struct ZoneFeature: Identifiable {
         )
     }
 
-    private static func makeID(
+    nonisolated private static func makeID(
         category: ZoneCategory,
         name: String?,
         sourceDeclaredType: String?,

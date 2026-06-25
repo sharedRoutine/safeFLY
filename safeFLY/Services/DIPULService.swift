@@ -10,7 +10,7 @@ import CoreLocation
 import MapKit
 import UIKit
 
-private func localizedProviderPresentation(title: String, groupTitle: String) -> ProviderDatasetPresentation {
+nonisolated private func localizedProviderPresentation(title: String, groupTitle: String) -> ProviderDatasetPresentation {
     ProviderDatasetPresentation(
         title: NSLocalizedString(title, comment: "Provider dataset title"),
         groupTitle: NSLocalizedString(groupTitle, comment: "Provider dataset group title")
@@ -26,11 +26,11 @@ struct DIPULFeatureInfoRecord: ProviderRawRecord {
     let upperLimit: AltitudeLimit?
     let legalReference: String?
 
-    var providerID: String { DIPULProvider.providerID }
+    nonisolated var providerID: String { DIPULProvider.providerID }
 }
 
-final class DIPULProvider: GeospatialProvider {
-    static let providerID = "dipul"
+final class DIPULProvider: GeospatialProvider, @unchecked Sendable {
+    nonisolated static let providerID = "dipul"
 
     private enum LayerStatus: Equatable {
         case working
@@ -43,22 +43,22 @@ final class DIPULProvider: GeospatialProvider {
         let layerIDs: [String]
     }
 
-    let id = DIPULProvider.providerID
-    let displayName = "DIPUL"
-    let capabilities = ProviderCapabilities(
+    nonisolated let id = DIPULProvider.providerID
+    nonisolated let displayName = "DIPUL"
+    nonisolated let capabilities = ProviderCapabilities(
         supportsRendering: true,
         supportsQuerying: true,
         supportsStatusRefresh: true
     )
 
-    private let baseURL = "https://uas-betrieb.de/geoservices/dipul/wms"
-    private let coverageBounds = (
+    nonisolated private let baseURL = "https://uas-betrieb.de/geoservices/dipul/wms"
+    nonisolated private let coverageBounds = (
         minLat: 47.0,
         maxLat: 55.2,
         minLon: 5.5,
         maxLon: 15.6
     )
-    private let datasetDefinitions: [DatasetDefinition] = [
+    nonisolated private let datasetDefinitions: [DatasetDefinition] = [
         DatasetDefinition(
             dataset: ProviderDataset(
                 id: "aviation.airports",
@@ -224,11 +224,11 @@ final class DIPULProvider: GeospatialProvider {
         )
     ]
 
-    var datasets: [ProviderDataset] {
+    nonisolated var datasets: [ProviderDataset] {
         datasetDefinitions.map(\.dataset)
     }
 
-    var referenceLinks: [ProviderReferenceLink] {
+    nonisolated var referenceLinks: [ProviderReferenceLink] {
         [
             ProviderReferenceLink(
                 title: NSLocalizedString("DFS DIPUL Datasource", comment: "Provider reference link title"),
@@ -237,7 +237,7 @@ final class DIPULProvider: GeospatialProvider {
         ]
     }
 
-    private func testLayer(_ layer: String) async -> LayerStatus {
+    nonisolated private func testLayer(_ layer: String) async -> LayerStatus {
         let urlString = "\(baseURL)?" +
             "service=WMS&" +
             "version=1.3.0&" +
@@ -294,7 +294,7 @@ final class DIPULProvider: GeospatialProvider {
         }
     }
 
-    func refreshStatus() async -> ProviderStatusSnapshot {
+    nonisolated func refreshStatus() async -> ProviderStatusSnapshot {
         let allPossibleLayers = Set(datasetDefinitions.flatMap(\.layerIDs))
         var brokenLayers = Set<String>()
         var networkErrorCount = 0
@@ -359,7 +359,7 @@ final class DIPULProvider: GeospatialProvider {
         )
     }
 
-    func renderPayloads(
+    nonisolated func renderPayloads(
         for request: ProviderRenderRequest,
         selectedDatasetIDs: Set<String>,
         status: ProviderStatusSnapshot
@@ -402,7 +402,7 @@ final class DIPULProvider: GeospatialProvider {
         ]
     }
 
-    func query(
+    nonisolated func query(
         for request: ProviderPointQueryRequest,
         selectedDatasetIDs: Set<String>,
         status: ProviderStatusSnapshot
@@ -459,7 +459,7 @@ final class DIPULProvider: GeospatialProvider {
         case query
     }
 
-    private func encodedLayerList(
+    nonisolated private func encodedLayerList(
         for selectedDatasetIDs: Set<String>,
         status: ProviderStatusSnapshot,
         operation: OperationKind
@@ -487,7 +487,7 @@ final class DIPULProvider: GeospatialProvider {
             .joined(separator: ",")
     }
 
-    private func parseFeatureInfo(_ text: String) -> ProviderQueryOutcome {
+    nonisolated private func parseFeatureInfo(_ text: String) -> ProviderQueryOutcome {
         let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if normalizedText.isEmpty {
             return .unavailable(reason: .providerNoData)
@@ -541,7 +541,7 @@ final class DIPULProvider: GeospatialProvider {
         return .matches(records: records.map { $0 as any ProviderRawRecord })
     }
 
-    private func extractLayerName(from line: String) -> String? {
+    nonisolated private func extractLayerName(from line: String) -> String? {
         guard let range = line.range(of: "dipul:") else {
             return nil
         }
@@ -554,7 +554,7 @@ final class DIPULProvider: GeospatialProvider {
         return "dipul:\(afterPrefix[..<endRange.lowerBound])"
     }
 
-    private func createRecord(from data: [String: String], layer: String) -> DIPULFeatureInfoRecord {
+    nonisolated private func createRecord(from data: [String: String], layer: String) -> DIPULFeatureInfoRecord {
         DIPULFeatureInfoRecord(
             layerName: layer,
             name: normalizedValue(data["name"]),
@@ -574,7 +574,7 @@ final class DIPULProvider: GeospatialProvider {
         )
     }
 
-    private func makeAltitudeLimit(value: String?, unit: String?, reference: String?) -> AltitudeLimit? {
+    nonisolated private func makeAltitudeLimit(value: String?, unit: String?, reference: String?) -> AltitudeLimit? {
         guard let value = normalizedValue(value) else {
             return nil
         }
@@ -586,7 +586,7 @@ final class DIPULProvider: GeospatialProvider {
         )
     }
 
-    private func normalizedValue(_ value: String?) -> String? {
+    nonisolated private func normalizedValue(_ value: String?) -> String? {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed.lowercased() != "null" else {
@@ -595,7 +595,7 @@ final class DIPULProvider: GeospatialProvider {
         return trimmed
     }
 
-    private func isWithinCoverage(_ coordinate: MapCoordinate) -> Bool {
+    nonisolated private func isWithinCoverage(_ coordinate: MapCoordinate) -> Bool {
         coordinate.latitude >= coverageBounds.minLat &&
             coordinate.latitude <= coverageBounds.maxLat &&
             coordinate.longitude >= coverageBounds.minLon &&

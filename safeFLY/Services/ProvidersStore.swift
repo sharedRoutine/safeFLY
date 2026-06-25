@@ -33,16 +33,18 @@ final class ProvidersStore: ObservableObject {
     }
 
     private let enabledProvidersStorageKey = "providers.enabled"
+    private let providerOrderStorageKey = "providers.order"
 
     init(registrations: [ProviderRegistration]) {
         let sessions = registrations.map {
             ProviderSession(provider: $0.provider, normalizer: $0.normalizer, autoRefreshStatus: false)
         }
+        let orderedSessions = Self.loadOrderedSessions(from: sessions, storageKey: "providers.order")
 
-        self.sessions = sessions
+        self.sessions = orderedSessions
         self.enabledProviderIDs = Self.loadEnabledProviderIDs(
             storageKey: "providers.enabled",
-            providers: sessions.map { $0.provider }
+            providers: orderedSessions.map { $0.provider }
         )
 
         Task {
@@ -70,9 +72,43 @@ final class ProvidersStore: ObservableObject {
         }
     }
 
+    func moveProviders(fromOffsets: IndexSet, toOffset: Int) {
+        let movedSessions = fromOffsets.map { sessions[$0] }
+        var reorderedSessions = sessions.enumerated().compactMap { index, session in
+            fromOffsets.contains(index) ? nil : session
+        }
+        let insertionIndex = min(toOffset, reorderedSessions.count)
+        reorderedSessions.insert(contentsOf: movedSessions, at: insertionIndex)
+        sessions = reorderedSessions
+        persistProviderOrder()
+        configurationRevision += 1
+    }
+
     func refreshAllStatuses() async {
+        let jobs = sessions.map { $0.makeStatusRefreshJob() }
+        let snapshotsByProviderID = await withTaskGroup(of: (String, ProviderStatusSnapshot).self, returning: [String: ProviderStatusSnapshot].self) { group in
+            for job in jobs {
+                group.addTask {
+                    if job.supportsStatusRefresh {
+                        let snapshot = await job.provider.refreshStatus()
+                        return (job.providerID, snapshot)
+                    }
+
+                    return (job.providerID, job.fallbackSnapshot)
+                }
+            }
+
+            var snapshots: [String: ProviderStatusSnapshot] = [:]
+            for await (providerID, snapshot) in group {
+                snapshots[providerID] = snapshot
+            }
+            return snapshots
+        }
+
         for session in sessions {
-            await session.refreshStatus()
+            if let snapshot = snapshotsByProviderID[session.id] {
+                session.applyStatusSnapshot(snapshot)
+            }
         }
 
         configurationRevision += 1
@@ -89,16 +125,44 @@ final class ProvidersStore: ObservableObject {
 
     func refreshRenderPayloads(for request: ProviderRenderRequest) async {
         let enabledSessions = enabledSessions
+        let renderOrderedSessions = Array(enabledSessions.reversed())
 
         for session in sessions where !enabledProviderIDs.contains(session.provider.id) {
             session.clearRenderPayloads()
         }
 
-        for session in enabledSessions {
-            await session.refreshRenderPayloads(for: request)
+        let jobs = renderOrderedSessions.compactMap { session -> ProviderRenderJob? in
+            let job = session.makeRenderJob(for: request)
+            if job == nil {
+                session.clearRenderPayloads()
+            }
+            return job
         }
 
-        renderPayloads = enabledSessions.flatMap(\.renderPayloads)
+        let payloadsByProviderID = await withTaskGroup(of: (String, [ProviderRenderPayload]).self, returning: [String: [ProviderRenderPayload]].self) { group in
+            for job in jobs {
+                group.addTask {
+                    let payloads = await job.provider.renderPayloads(
+                        for: job.request,
+                        selectedDatasetIDs: job.selectedDatasetIDs,
+                        status: job.statusSnapshot
+                    )
+                    return (job.providerID, payloads)
+                }
+            }
+
+            var payloads: [String: [ProviderRenderPayload]] = [:]
+            for await (providerID, providerPayloads) in group {
+                payloads[providerID] = providerPayloads
+            }
+            return payloads
+        }
+
+        for session in renderOrderedSessions {
+            session.applyRenderPayloads(payloadsByProviderID[session.id] ?? [])
+        }
+
+        renderPayloads = renderOrderedSessions.flatMap { payloadsByProviderID[$0.id] ?? [] }
     }
 
     func queryLocation(for request: ProviderPointQueryRequest) async {
@@ -116,8 +180,37 @@ final class ProvidersStore: ObservableObject {
             session.clearZoneQueryResult()
         }
 
+        let jobs = enabledSessions.compactMap { session -> ProviderQueryJob? in
+            let job = session.makeQueryJob(for: request)
+            if job == nil {
+                session.applyNonAssessmentNoEnabledLayers()
+            }
+            return job
+        }
+
+        let outcomesByProviderID = await withTaskGroup(of: (String, ProviderQueryOutcome).self, returning: [String: ProviderQueryOutcome].self) { group in
+            for job in jobs {
+                group.addTask {
+                    let outcome = await job.provider.query(
+                        for: job.request,
+                        selectedDatasetIDs: job.selectedDatasetIDs,
+                        status: job.statusSnapshot
+                    )
+                    return (job.providerID, outcome)
+                }
+            }
+
+            var outcomes: [String: ProviderQueryOutcome] = [:]
+            for await (providerID, outcome) in group {
+                outcomes[providerID] = outcome
+            }
+            return outcomes
+        }
+
         for session in enabledSessions {
-            await session.queryLocation(for: request)
+            if let outcome = outcomesByProviderID[session.id] {
+                session.applyQueryOutcome(outcome)
+            }
         }
 
         zoneQueryResult = aggregateZoneQueryResult(from: enabledSessions)
@@ -192,6 +285,10 @@ final class ProvidersStore: ObservableObject {
         UserDefaults.standard.set(Array(enabledProviderIDs).sorted(), forKey: enabledProvidersStorageKey)
     }
 
+    private func persistProviderOrder() {
+        UserDefaults.standard.set(sessions.map(\.id), forKey: providerOrderStorageKey)
+    }
+
     private static func loadEnabledProviderIDs(
         storageKey: String,
         providers: [any GeospatialProvider]
@@ -201,5 +298,16 @@ final class ProvidersStore: ObservableObject {
         }
 
         return Set(providers.map(\.id))
+    }
+
+    private static func loadOrderedSessions(from sessions: [ProviderSession], storageKey: String) -> [ProviderSession] {
+        guard let savedOrder = UserDefaults.standard.stringArray(forKey: storageKey), !savedOrder.isEmpty else {
+            return sessions
+        }
+
+        let sessionsByID = Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, $0) })
+        let orderedSessions = savedOrder.compactMap { sessionsByID[$0] }
+        let unorderedSessions = sessions.filter { !savedOrder.contains($0.id) }
+        return orderedSessions + unorderedSessions
     }
 }
